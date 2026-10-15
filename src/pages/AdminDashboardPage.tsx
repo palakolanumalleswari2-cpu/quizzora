@@ -8,22 +8,21 @@ import {
   Search,
   Download,
   RotateCcw,
+  RefreshCw,
   Key,
-  ToggleLeft,
-  ToggleRight,
   Shield,
-  FileSpreadsheet,
-  Layers,
-  History,
-  Eye,
   LogOut,
-  ChevronLeft,
-  ChevronRight,
   ArrowUpDown,
   BookOpen,
-  Code2,
+  Layers,
+  FileCheck2,
+  AlertTriangle,
+  Loader2,
+  Calendar,
 } from 'lucide-react';
 import { MASTER_QUESTIONS } from '../data/quizQuestions.js';
+import { db } from '../lib/firebase.js';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 interface AdminDashboardPageProps {
   adminEmail: string;
@@ -43,10 +42,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sessionFilter, setSessionFilter] = useState('all');
   const [sortField, setSortField] = useState<'score' | 'rollNumber' | 'fullName' | 'submittedAt'>('submittedAt');
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
-  const itemsPerPage = 8;
+  const itemsPerPage = 10;
 
   // Settings State
   const [newAccessCode, setNewAccessCode] = useState('');
@@ -54,8 +54,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [allowReview, setAllowReview] = useState(false);
   const [settingsSuccessMsg, setSettingsSuccessMsg] = useState<string | null>(null);
 
-  // Selected Submission Modal
-  const [selectedSub, setSelectedSub] = useState<any | null>(null);
+  // Restart Session State & Confirmation Dialog
+  const [showRestartModal, setShowRestartModal] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [restartSuccessMsg, setRestartSuccessMsg] = useState<string | null>(null);
+  const [restartErrorMsg, setRestartErrorMsg] = useState<string | null>(null);
 
   const fetchAdminData = async () => {
     setLoading(true);
@@ -81,7 +84,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
       if (subsRes.ok) {
         const sData = await subsRes.json();
-        setSubmissions(sData.submissions || []);
+        const apiSubs = sData.submissions || [];
+        mergeSubmissions(apiSubs);
       }
 
       if (logsRes.ok) {
@@ -95,9 +99,107 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   };
 
+  // Helper to merge and deduplicate submissions by submissionId or rollNumber
+  const mergeSubmissions = (newItems: any[]) => {
+    setSubmissions(prev => {
+      const map = new Map<string, any>();
+      // Keep existing items
+      for (const item of prev) {
+        const key = item.submissionId || `${item.rollNumber}_${item.sessionId || 'session_1'}`;
+        map.set(key, item);
+      }
+      // Add or update with new items
+      for (const item of newItems) {
+        const key = item.submissionId || `${item.rollNumber}_${item.sessionId || 'session_1'}`;
+        map.set(key, item);
+      }
+      return Array.from(map.values());
+    });
+  };
+
+  // Real-time Firestore listener: captures student submissions from all devices live!
   useEffect(() => {
     fetchAdminData();
+
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const q = collection(db, 'quizResults');
+      unsubscribe = onSnapshot(
+        q,
+        snapshot => {
+          const liveList: any[] = [];
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            liveList.push({
+              rollNumber: data.rollNumber,
+              fullName: data.fullName,
+              email: data.email,
+              status: 'submitted',
+              score: data.score,
+              totalMarks: data.totalMarks || 30,
+              percentage: data.percentage,
+              timeTakenSeconds: data.timeTakenSeconds,
+              submittedAt: data.submittedAt,
+              submissionId: data.submissionId || docSnap.id,
+              sessionId: data.sessionId || 'session_1',
+              attemptId: data.attemptId || null,
+            });
+          });
+          if (liveList.length > 0) {
+            mergeSubmissions(liveList);
+          }
+        },
+        error => {
+          console.warn('Real-time Firestore listener notice (will use REST sync):', error.message);
+        }
+      );
+    } catch (err) {
+      console.warn('Firestore subscription setup notice:', err);
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [adminEmail]);
+
+  // Restart Quiz Session Handler
+  const handleExecuteRestart = async () => {
+    setIsRestarting(true);
+    setRestartErrorMsg(null);
+    setRestartSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/admin/restart-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': adminEmail,
+          'x-admin-key': 'quizzora_admin_2026',
+        },
+        body: JSON.stringify({
+          adminEmail,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRestartErrorMsg(data.error || 'Failed to restart session.');
+        setIsRestarting(false);
+        return;
+      }
+
+      setRestartSuccessMsg(data.message || 'Competition successfully restarted into a new session!');
+      setShowRestartModal(false);
+      await fetchAdminData();
+      setTimeout(() => setRestartSuccessMsg(null), 5000);
+    } catch (err) {
+      console.error('Restart session error:', err);
+      setRestartErrorMsg('Network error while requesting session restart.');
+    } finally {
+      setIsRestarting(false);
+    }
+  };
 
   // Update Settings
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -121,7 +223,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       });
 
       if (res.ok) {
-        setSettingsSuccessMsg('Quiz settings and access code updated successfully!');
+        setSettingsSuccessMsg('Quiz settings and access code updated successfully in Firestore!');
         fetchAdminData();
         setTimeout(() => setSettingsSuccessMsg(null), 4000);
       }
@@ -132,7 +234,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
   // Reset Student Attempt
   const handleResetAttempt = async (rollNumber: string) => {
-    if (!window.confirm(`Are you sure you want to reset the attempt for Roll No ${rollNumber}? This will wipe their current score and permit them to retake the quiz.`)) {
+    if (!window.confirm(`Reset attempt for Roll Number ${rollNumber}? This will permit the student to retake the current session.`)) {
       return;
     }
 
@@ -164,15 +266,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     window.location.href = '/api/admin/export-csv';
   };
 
+  // Distinct Sessions list
+  const availableSessions = Array.from(new Set(submissions.map(s => s.sessionId || 'session_1')));
+
   // Filtered & Sorted Submissions
   const filteredSubmissions = submissions.filter(s => {
     const matchesSearch =
-      s.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.rollNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchQuery.toLowerCase());
+      (s.fullName && s.fullName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (s.rollNumber && s.rollNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (s.email && s.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesSession = sessionFilter === 'all' || (s.sessionId || 'session_1') === sessionFilter;
+
+    return matchesSearch && matchesStatus && matchesSession;
   });
 
   const sortedSubmissions = [...filteredSubmissions].sort((a, b) => {
@@ -192,8 +299,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const paginatedSubmissions = sortedSubmissions.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   return (
-    <div className="py-6 space-y-8 max-w-7xl mx-auto">
-      {/* Top Banner */}
+    <div className="py-6 space-y-8 max-w-7xl mx-auto px-2 sm:px-0">
+      {/* Top Banner & Action Controls */}
       <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 text-white flex flex-wrap items-center justify-between gap-4 border border-slate-800 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-purple-600 flex items-center justify-center text-white shadow-md">
@@ -202,8 +309,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight">Organizer Control Center</h1>
-              <span className="text-2xs font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                Live Console
+              <span className="text-2xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Firestore Connected
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -212,12 +319,24 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Global Toolbar Buttons including RESTART BUTTON */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* RESTART QUIZ SESSION BUTTON */}
+          <button
+            onClick={() => setShowRestartModal(true)}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950 transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer active:scale-95"
+            title="Restart quiz into a new session while preserving all previous marks"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Restart Quiz Session</span>
+          </button>
+
           <button
             onClick={fetchAdminData}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+            disabled={loading}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh Data</span>
           </button>
 
@@ -239,46 +358,34 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       </div>
 
+      {/* Restart Feedback Banner */}
+      {restartSuccessMsg && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs sm:text-sm font-semibold flex items-center gap-3 shadow-xs">
+          <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+          <span>✓ {restartSuccessMsg}</span>
+        </div>
+      )}
+
       {/* Overview Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-2xs font-bold text-slate-400 uppercase tracking-wider block">
-            Registered
+            Submissions
           </span>
           <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
-            {metrics?.registeredCount ?? 0}
+            {submissions.filter(s => s.status === 'submitted').length}
           </p>
-          <span className="text-3xs text-slate-500">Total Participants</span>
+          <span className="text-3xs text-slate-500">Firestore Stored</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-2xs font-bold text-blue-500 uppercase tracking-wider block">
-            In Progress
+            Active Session
           </span>
-          <p className="text-2xl font-bold font-mono text-blue-600 mt-1">
-            {metrics?.inProgressCount ?? 0}
+          <p className="text-sm font-bold font-mono text-blue-600 mt-2 truncate">
+            {metrics?.currentSessionId || 'session_1'}
           </p>
-          <span className="text-3xs text-slate-500">Currently Taking</span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
-          <span className="text-2xs font-bold text-emerald-500 uppercase tracking-wider block">
-            Submitted
-          </span>
-          <p className="text-2xl font-bold font-mono text-emerald-600 mt-1">
-            {metrics?.submittedCount ?? 0}
-          </p>
-          <span className="text-3xs text-slate-500">Completed Attempts</span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
-          <span className="text-2xs font-bold text-amber-500 uppercase tracking-wider block">
-            Not Started
-          </span>
-          <p className="text-2xl font-bold font-mono text-amber-600 mt-1">
-            {metrics?.notStartedCount ?? 0}
-          </p>
-          <span className="text-3xs text-slate-500">Registered only</span>
+          <span className="text-3xs text-slate-500">Session #{metrics?.sessionNumber || 1}</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
@@ -300,24 +407,44 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </p>
           <span className="text-3xs text-slate-500">Highest Achieved</span>
         </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
+          <span className="text-2xs font-bold text-amber-500 uppercase tracking-wider block">
+            Access Code
+          </span>
+          <p className="text-base font-bold font-mono text-slate-900 mt-1.5 truncate">
+            {metrics?.accessCode || 'QUIZZORA2026'}
+          </p>
+          <span className="text-3xs text-slate-500">Active Code</span>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
+          <span className="text-2xs font-bold text-emerald-500 uppercase tracking-wider block">
+            Quiz Status
+          </span>
+          <p className="text-base font-bold text-emerald-600 mt-1.5">
+            {metrics?.quizStatus || 'Active'}
+          </p>
+          <span className="text-3xs text-slate-500">Competition Open</span>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200 gap-2">
+      {/* Tabs Navigation */}
+      <div className="flex border-b border-slate-200 gap-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('submissions')}
-          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'submissions'
               ? 'border-purple-600 text-purple-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          Student Submissions ({submissions.length})
+          All Student Submissions ({submissions.length})
         </button>
 
         <button
           onClick={() => setActiveTab('settings')}
-          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'settings'
               ? 'border-purple-600 text-purple-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -328,7 +455,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <button
           onClick={() => setActiveTab('questions')}
-          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'questions'
               ? 'border-purple-600 text-purple-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -339,7 +466,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <button
           onClick={() => setActiveTab('audit')}
-          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'audit'
               ? 'border-purple-600 text-purple-700'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -349,23 +476,38 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </button>
       </div>
 
-      {/* Tab 1: Submissions Table */}
+      {/* Tab 1: Student Submissions Table */}
       {activeTab === 'submissions' && (
-        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden space-y-4 p-6">
-          {/* Filter & Search Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <div className="relative w-full sm:w-72">
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden space-y-4 p-4 sm:p-6">
+          {/* Filters Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <div className="relative w-full sm:w-64">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search name, roll number, email..."
+                  placeholder="Search name, roll no, email..."
                   className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/30"
                 />
               </div>
 
+              {/* Session Filter */}
+              <select
+                value={sessionFilter}
+                onChange={e => setSessionFilter(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white text-slate-700 focus:outline-none"
+              >
+                <option value="all">All Sessions</option>
+                {availableSessions.map(sess => (
+                  <option key={sess} value={sess}>
+                    {sess === metrics?.currentSessionId ? `Current (${sess})` : sess}
+                  </option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
@@ -374,16 +516,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 <option value="all">All Statuses</option>
                 <option value="submitted">Submitted</option>
                 <option value="in_progress">In Progress</option>
-                <option value="not_started">Not Started</option>
               </select>
             </div>
 
             <div className="text-2xs text-slate-500 font-medium">
-              Showing {paginatedSubmissions.length} of {filteredSubmissions.length} participants
+              Showing {paginatedSubmissions.length} of {filteredSubmissions.length} records
             </div>
           </div>
 
-          {/* Table */}
+          {/* Submissions Table */}
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wider border-b border-slate-200">
@@ -413,6 +554,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     </div>
                   </th>
                   <th className="p-3.5">Email</th>
+                  <th className="p-3.5">Session</th>
                   <th className="p-3.5">Status</th>
                   <th
                     className="p-3.5 cursor-pointer hover:bg-slate-100"
@@ -428,25 +570,35 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   </th>
                   <th className="p-3.5">Percentage</th>
                   <th className="p-3.5">Time Spent</th>
+                  <th className="p-3.5">Submitted At</th>
                   <th className="p-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedSubmissions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400">
-                      No matching student participants found.
+                    <td colSpan={10} className="p-8 text-center text-slate-400">
+                      No matching student submissions found in Firestore.
                     </td>
                   </tr>
                 ) : (
                   paginatedSubmissions.map(sub => {
+                    const isCurrentSession = sub.sessionId === metrics?.currentSessionId;
+
                     return (
-                      <tr key={sub.rollNumber} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={sub.submissionId || sub.rollNumber} className="hover:bg-slate-50/80 transition-colors">
                         <td className="p-3.5 font-mono font-bold text-indigo-900">
                           {sub.rollNumber}
                         </td>
                         <td className="p-3.5 font-semibold text-slate-900">{sub.fullName}</td>
                         <td className="p-3.5 text-slate-500 font-mono text-2xs">{sub.email}</td>
+                        <td className="p-3.5">
+                          <span className={`px-2 py-0.5 rounded-md font-mono text-3xs font-semibold ${
+                            isCurrentSession ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {sub.sessionId || 'session_1'}
+                          </span>
+                        </td>
                         <td className="p-3.5">
                           {sub.status === 'submitted' && (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
@@ -456,11 +608,6 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                           {sub.status === 'in_progress' && (
                             <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold border border-blue-200">
                               In Progress
-                            </span>
-                          )}
-                          {sub.status === 'not_started' && (
-                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
-                              Registered
                             </span>
                           )}
                         </td>
@@ -479,13 +626,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                             ? `${Math.floor(sub.timeTakenSeconds / 60)}m ${sub.timeTakenSeconds % 60}s`
                             : '—'}
                         </td>
+                        <td className="p-3.5 text-slate-500 text-3xs">
+                          {sub.submittedAt ? new Date(sub.submittedAt).toLocaleString() : '—'}
+                        </td>
                         <td className="p-3.5 text-right space-x-2">
                           <button
                             onClick={() => handleResetAttempt(sub.rollNumber)}
-                            title="Reset Attempt (Permits retake)"
+                            title="Reset attempt for this student in current session"
                             className="px-2.5 py-1 rounded-lg border border-slate-200 text-rose-600 hover:bg-rose-50 text-2xs font-semibold cursor-pointer"
                           >
-                            Reset Attempt
+                            Reset
                           </button>
                         </td>
                       </tr>
@@ -505,14 +655,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
               >
                 Next
               </button>
@@ -555,7 +705,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 font-mono uppercase text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
               />
               <p className="text-2xs text-slate-500">
-                All participants must provide this code to enter the examination. Changes take effect instantly on the backend.
+                Configured access code is verified securely on the backend.
               </p>
             </div>
 
@@ -611,7 +761,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       )}
 
-      {/* Tab 3: Questions & Answer Key (Organizer Privileged View) */}
+      {/* Tab 3: Questions & Answer Key */}
       {activeTab === 'questions' && (
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-6">
           <div>
@@ -671,7 +821,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div>
             <h2 className="text-base font-bold text-slate-900">Administrative Audit Trail</h2>
             <p className="text-xs text-slate-500">
-              Immutable log of configuration updates, attempt resets, and organizer actions
+              Immutable log of configuration updates, attempt resets, and session restarts
             </p>
           </div>
 
@@ -690,6 +840,76 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION DIALOG FOR RESTART QUIZ SESSION */}
+      {showRestartModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-6 shadow-2xl border border-slate-100">
+            <div className="text-center space-y-2">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200 shadow-inner">
+                <RefreshCw className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900">
+                Restart Quiz Competition Session?
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                This operation will archive the current active session (<strong className="font-mono">{metrics?.currentSessionId || 'session_1'}</strong>) and launch a brand new quiz session with a fresh 30-minute timer for incoming student attempts.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2 text-xs text-amber-900">
+              <p className="font-bold flex items-center gap-1.5">
+                <Shield className="w-4 h-4 text-amber-600" />
+                <span>Data Preservation Guarantee</span>
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-2xs text-amber-800">
+                <li>All previously submitted student marks, scores, and receipts remain safe in Cloud Firestore.</li>
+                <li>Past submissions are preserved and searchable in the results table.</li>
+                <li>New student logins will participate under the new session.</li>
+              </ul>
+            </div>
+
+            {restartErrorMsg && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+                {restartErrorMsg}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRestartModal(false);
+                  setRestartErrorMsg(null);
+                }}
+                disabled={isRestarting}
+                className="flex-1 py-3 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs cursor-pointer transition-colors"
+              >
+                Cancel (Keep Current)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExecuteRestart}
+                disabled={isRestarting}
+                className="flex-1 py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isRestarting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Restarting...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Yes, Restart Session</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -26,6 +26,16 @@ export interface Student {
   status: 'registered' | 'in_progress' | 'submitted';
 }
 
+export interface QuizSession {
+  sessionId: string;
+  quizId: string;
+  title: string;
+  startedAt: string;
+  endedAt?: string;
+  status: 'active' | 'closed';
+  sessionNumber: number;
+}
+
 export interface QuizAttempt {
   attemptId: string;
   studentId: string;
@@ -33,6 +43,7 @@ export interface QuizAttempt {
   fullName: string;
   email: string;
   quizId: string;
+  sessionId?: string;
   startTime: number; // Epoch ms
   deadline: number; // Epoch ms
   submittedAt?: number;
@@ -50,6 +61,7 @@ export interface QuizResult {
   fullName: string;
   email: string;
   quizId: string;
+  sessionId?: string;
   score: number;
   totalMarks: number;
   percentage: number;
@@ -77,6 +89,7 @@ export interface QuizSettings {
   totalQuestions: number;
   isActive: boolean;
   allowReviewAfterClose: boolean;
+  currentSessionId: string;
   updatedAt: string;
   updatedBy: string;
 }

@@ -27,10 +27,28 @@
         "totalQuestions": { "type": "integer" },
         "isActive": { "type": "boolean" },
         "allowReviewAfterClose": { "type": "boolean" },
+        "currentSessionId": { "type": "string", "maxLength": 128 },
         "updatedAt": { "type": "string" },
         "updatedBy": { "type": "string", "maxLength": 100 }
       },
       "required": ["quizId", "title", "accessCode", "durationMinutes", "totalQuestions", "isActive"]
+    },
+    "QuizSession": {
+      "title": "QuizSession",
+      "description": "Competition session tracking round number, start and close times",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "quizId": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 150 },
+        "sessionNumber": { "type": "integer" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "startedAt": { "type": "string" },
+        "startedBy": { "type": "string", "maxLength": 150 },
+        "endedAt": { "type": "string" },
+        "closedBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["sessionId", "quizId", "status"]
     },
     "QuizAttempt": {
       "title": "QuizAttempt",
@@ -43,6 +61,7 @@
         "fullName": { "type": "string", "maxLength": 100 },
         "email": { "type": "string", "maxLength": 150 },
         "quizId": { "type": "string", "maxLength": 50 },
+        "sessionId": { "type": "string", "maxLength": 128 },
         "startTime": { "type": "integer" },
         "deadline": { "type": "integer" },
         "submittedAt": { "type": "integer" },
@@ -64,6 +83,7 @@
         "fullName": { "type": "string", "maxLength": 100 },
         "email": { "type": "string", "maxLength": 150 },
         "quizId": { "type": "string", "maxLength": 50 },
+        "sessionId": { "type": "string", "maxLength": 128 },
         "score": { "type": "integer" },
         "totalMarks": { "type": "integer" },
         "percentage": { "type": "number" },
@@ -110,6 +130,10 @@
     "/quizSettings/{quizId}": {
       "schema": { "$ref": "#/entities/QuizConfig" },
       "description": "Quiz operational configurations and organizer controls"
+    },
+    "/quizSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/QuizSession" },
+      "description": "Competition sessions tracking active and past rounds"
     },
     "/quizAttempts/{attemptId}": {
       "schema": { "$ref": "#/entities/QuizAttempt" },
