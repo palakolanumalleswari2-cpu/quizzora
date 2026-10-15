@@ -1,0 +1,6 @@
+{
+  "name": "Quizzora - Online Python & Technology Quiz Platform",
+  "description": "Production-ready online quiz platform for college technical competitions, featuring secure timer enforcement, server-side auto-evaluation, student registration, access code authentication, and comprehensive organizer dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

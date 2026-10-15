@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Registered student participant profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "rollNumber": { "type": "string", "maxLength": 50, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 150 },
+        "registeredAt": { "type": "string" },
+        "quizId": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["registered", "in_progress", "submitted"] }
+      },
+      "required": ["fullName", "rollNumber", "email", "quizId", "registeredAt"]
+    },
+    "QuizConfig": {
+      "title": "QuizConfig",
+      "description": "Quiz configuration and organizer control parameters",
+      "type": "object",
+      "properties": {
+        "quizId": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 150 },
+        "accessCode": { "type": "string", "maxLength": 50 },
+        "durationMinutes": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "isActive": { "type": "boolean" },
+        "allowReviewAfterClose": { "type": "boolean" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["quizId", "title", "accessCode", "durationMinutes", "totalQuestions", "isActive"]
+    },
+    "QuizAttempt": {
+      "title": "QuizAttempt",
+      "description": "Student quiz attempt tracking timer, progress, and status",
+      "type": "object",
+      "properties": {
+        "attemptId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "rollNumber": { "type": "string", "maxLength": 50 },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "quizId": { "type": "string", "maxLength": 50 },
+        "startTime": { "type": "integer" },
+        "deadline": { "type": "integer" },
+        "submittedAt": { "type": "integer" },
+        "status": { "type": "string", "enum": ["in_progress", "submitted", "expired", "reset"] },
+        "answers": { "type": "object" },
+        "submissionId": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["attemptId", "studentId", "rollNumber", "fullName", "quizId", "startTime", "deadline", "status"]
+    },
+    "QuizResult": {
+      "title": "QuizResult",
+      "description": "Finalized student evaluation result with calculated score and percentage",
+      "type": "object",
+      "properties": {
+        "resultId": { "type": "string", "maxLength": 128 },
+        "attemptId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "rollNumber": { "type": "string", "maxLength": 50 },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "quizId": { "type": "string", "maxLength": 50 },
+        "score": { "type": "integer" },
+        "totalMarks": { "type": "integer" },
+        "percentage": { "type": "number" },
+        "correctCount": { "type": "integer" },
+        "incorrectCount": { "type": "integer" },
+        "unansweredCount": { "type": "integer" },
+        "timeTakenSeconds": { "type": "integer" },
+        "submittedAt": { "type": "string" },
+        "submissionId": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["resultId", "attemptId", "rollNumber", "fullName", "score", "totalMarks", "percentage", "submittedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized quiz administrator account",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["super_admin", "organizer"] },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrative actions audit log",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "maxLength": 128 },
+        "adminEmail": { "type": "string", "maxLength": 150 },
+        "action": { "type": "string", "maxLength": 100 },
+        "details": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["logId", "adminEmail", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Student registration directory keyed by normalized roll number"
+    },
+    "/quizSettings/{quizId}": {
+      "schema": { "$ref": "#/entities/QuizConfig" },
+      "description": "Quiz operational configurations and organizer controls"
+    },
+    "/quizAttempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/QuizAttempt" },
+      "description": "Student quiz attempts tracking active state, timer deadline, and autosaved choices"
+    },
+    "/quizResults/{resultId}": {
+      "schema": { "$ref": "#/entities/QuizResult" },
+      "description": "Final verified student scores and submission receipts"
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized administrator allowlist"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit trail of administrator actions"
+    }
+  }
+}

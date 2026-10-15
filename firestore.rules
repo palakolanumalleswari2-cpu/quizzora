@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default Deny All Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Security Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'google.com');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Authorized administrator check (includes requested organizer email and admin collection)
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == "palakolanumalleswari2@gmail.com" && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Student Registration Validator
+    function isValidStudent(data) {
+      return data.keys().hasAll(['fullName', 'rollNumber', 'email', 'quizId', 'registeredAt', 'status'])
+        && data.keys().hasOnly(['fullName', 'rollNumber', 'email', 'quizId', 'registeredAt', 'status', 'id'])
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100
+        && data.rollNumber is string && data.rollNumber.size() >= 2 && data.rollNumber.size() <= 50 && data.rollNumber.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 150 && data.email.matches('.+@.+\\..+')
+        && data.quizId is string && data.quizId.size() <= 50
+        && data.status in ['registered', 'in_progress', 'submitted'];
+    }
+
+    // Student Registration Path
+    match /students/{studentId} {
+      allow get: if isValidId(studentId);
+      allow list: if isAdmin();
+      allow create: if isValidId(studentId) 
+        && isValidStudent(incoming())
+        && studentId == incoming().rollNumber;
+      allow update: if isValidId(studentId) && (
+        isAdmin() || 
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status in ['in_progress', 'submitted'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Quiz Configuration & Settings
+    match /quizSettings/{quizId} {
+      allow get: if isValidId(quizId);
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Quiz Attempt validation
+    function isValidAttemptUpdate(data) {
+      return data.keys().hasAll(['attemptId', 'studentId', 'rollNumber', 'fullName', 'quizId', 'startTime', 'deadline', 'status'])
+        && data.attemptId is string && data.attemptId.size() <= 128
+        && data.rollNumber is string && data.rollNumber.size() <= 50
+        && data.status in ['in_progress', 'submitted', 'expired', 'reset']
+        && incoming().startTime == existing().startTime
+        && incoming().deadline == existing().deadline
+        && incoming().studentId == existing().studentId
+        && incoming().rollNumber == existing().rollNumber;
+    }
+
+    // Student Quiz Attempts
+    match /quizAttempts/{attemptId} {
+      allow get: if isValidId(attemptId);
+      allow list: if isAdmin();
+      allow create: if isValidId(attemptId)
+        && incoming().keys().hasAll(['attemptId', 'studentId', 'rollNumber', 'fullName', 'quizId', 'startTime', 'deadline', 'status'])
+        && incoming().status in ['in_progress', 'submitted']
+        && incoming().attemptId == attemptId;
+      // Allow autosaving answers while active, and status transition to submitted
+      allow update: if isValidId(attemptId) && (
+        isAdmin() || (
+          existing().status == 'in_progress'
+          && isValidAttemptUpdate(incoming())
+          && (
+            // Autosave answers action
+            (incoming().diff(existing()).affectedKeys().hasOnly(['answers', 'lastSavedAt'])) ||
+            // Submission action
+            (incoming().diff(existing()).affectedKeys().hasOnly(['answers', 'submittedAt', 'status', 'submissionId']) && incoming().status == 'submitted')
+          )
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Quiz Results - Generated and finalized
+    match /quizResults/{resultId} {
+      allow get: if isValidId(resultId);
+      allow list: if isAdmin();
+      allow create: if isValidId(resultId)
+        && incoming().resultId == resultId
+        && incoming().keys().hasAll(['resultId', 'attemptId', 'rollNumber', 'fullName', 'score', 'totalMarks', 'percentage', 'submittedAt'])
+        && incoming().score is int && incoming().score >= 0 && incoming().score <= 30
+        && incoming().totalMarks == 30;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Authorized Admins collection
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && (request.auth.uid == adminUid || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Audit Log for Organizer actions
+    match /auditLogs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() || (isSignedIn() && incoming().keys().hasAll(['logId', 'action', 'timestamp']));
+      allow update, delete: if false; // Immutable audit log
+    }
+  }
+}
