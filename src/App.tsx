@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
 import { HomePage } from './pages/HomePage.js';
-import { RegisterPage } from './pages/RegisterPage.js';
-import { AccessCodePage } from './pages/AccessCodePage.js';
+import { StudentLoginPage } from './pages/StudentLoginPage.js';
 import { InstructionsPage } from './pages/InstructionsPage.js';
 import { QuizExamPage } from './pages/QuizExamPage.js';
 import { ResultPage } from './pages/ResultPage.js';
@@ -13,33 +12,42 @@ import { UnauthorizedPage } from './pages/UnauthorizedPage.js';
 import { Student, Question, QuizResult } from './types/quiz.js';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<string>('home');
+  // Direct student login is the primary landing view for all participants
+  const [currentView, setCurrentView] = useState<string>('login');
+  
   const [student, setStudent] = useState<Student | null>(() => {
-    const saved = sessionStorage.getItem('quizzora_student');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = sessionStorage.getItem('quizzora_student');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
+
   const [verificationToken, setVerificationToken] = useState<string | null>(() => {
     return sessionStorage.getItem('quizzora_token');
   });
 
-  // Quiz active exam state
+  // Quiz active exam session state
   const [attemptId, setAttemptId] = useState<string | null>(() => {
     return sessionStorage.getItem('quizzora_attempt_id');
   });
+
   const [deadlineEpochMs, setDeadlineEpochMs] = useState<number | null>(() => {
     const val = sessionStorage.getItem('quizzora_deadline');
     return val ? parseInt(val, 10) : null;
   });
+
   const [questions, setQuestions] = useState<Question[]>([]);
   const [savedAnswers, setSavedAnswers] = useState<Record<string, 'A' | 'B' | 'C' | 'D'>>({});
   const [finalResult, setFinalResult] = useState<QuizResult | null>(null);
 
-  // Admin state
+  // Admin session state
   const [adminEmail, setAdminEmail] = useState<string | null>(() => {
     return sessionStorage.getItem('quizzora_admin_email');
   });
 
-  // Quiz info
+  // Quiz operational metadata
   const [quizInfo, setQuizInfo] = useState<any>(null);
 
   // Fetch initial quiz info
@@ -50,7 +58,7 @@ export default function App() {
       .catch(err => console.error('Failed to load quiz info:', err));
   }, []);
 
-  // Save student & token to session
+  // Sync session storage
   useEffect(() => {
     if (student) {
       sessionStorage.setItem('quizzora_student', JSON.stringify(student));
@@ -91,29 +99,30 @@ export default function App() {
     }
   }, [adminEmail]);
 
-  // Handle successful registration
-  const handleStudentRegistered = (registeredStudent: Student) => {
-    setStudent(registeredStudent);
-    setCurrentView('access-code');
-  };
-
-  // Handle code verified
-  const handleCodeVerified = (token: string, studentData: any) => {
+  // Handle successful direct student login
+  const handleLoginSuccess = (
+    loggedInStudent: Student,
+    token: string,
+    alreadySubmitted?: boolean,
+    submissionId?: string
+  ) => {
+    setStudent(loggedInStudent);
     setVerificationToken(token);
-    if (student) {
-      setStudent({
-        ...student,
-        fullName: studentData.fullName || student.fullName,
-        rollNumber: studentData.rollNumber || student.rollNumber,
-      });
+
+    // If student has already submitted, directly display their finalized result
+    if (alreadySubmitted && submissionId) {
+      fetchResultAndDisplay(submissionId);
+      return;
     }
+
+    // Direct transition to instructions
     setCurrentView('instructions');
   };
 
-  // Start Quiz (initiates countdown on server)
+  // Start or resume quiz attempt (locks timer on server)
   const handleStartQuiz = async () => {
     if (!student || !verificationToken) {
-      setCurrentView('register');
+      setCurrentView('login');
       return;
     }
 
@@ -145,11 +154,11 @@ export default function App() {
       setCurrentView('quiz');
     } catch (err) {
       console.error('Start quiz network error:', err);
-      alert('Could not start quiz. Please check internet connection.');
+      alert('Could not connect to exam server. Please check your internet connection.');
     }
   };
 
-  // Fetch final result
+  // Fetch verified student result
   const fetchResultAndDisplay = async (submissionId: string) => {
     try {
       const res = await fetch(`/api/quiz/result/${submissionId}`);
@@ -157,7 +166,7 @@ export default function App() {
         const resultData = await res.json();
         setFinalResult(resultData);
         setCurrentView('result');
-        // Clear active attempt
+        // Clear active attempt session
         setAttemptId(null);
         setDeadlineEpochMs(null);
       }
@@ -177,7 +186,7 @@ export default function App() {
 
   const handleAdminLogout = () => {
     setAdminEmail(null);
-    setCurrentView('home');
+    setCurrentView('login');
   };
 
   return (
@@ -193,25 +202,21 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Direct Student Login (Primary Entrance) */}
+        {currentView === 'login' && (
+          <StudentLoginPage
+            onLoginSuccess={handleLoginSuccess}
+            onNavigateOrganizer={() => setCurrentView('admin-login')}
+            initialRollNumber={student?.rollNumber}
+          />
+        )}
+
+        {/* Competition Rules & Info Overview */}
         {currentView === 'home' && (
           <HomePage onNavigate={setCurrentView} quizInfo={quizInfo} />
         )}
 
-        {currentView === 'register' && (
-          <RegisterPage
-            onSuccess={handleStudentRegistered}
-            onNavigate={setCurrentView}
-          />
-        )}
-
-        {currentView === 'access-code' && (
-          <AccessCodePage
-            student={student}
-            onCodeVerified={handleCodeVerified}
-            onNavigate={setCurrentView}
-          />
-        )}
-
+        {/* Instructions & Readiness Check */}
         {currentView === 'instructions' && student && (
           <InstructionsPage
             student={student}
@@ -220,6 +225,7 @@ export default function App() {
           />
         )}
 
+        {/* Active Quiz Examination Interface */}
         {currentView === 'quiz' && attemptId && deadlineEpochMs && student && (
           <QuizExamPage
             attemptId={attemptId}
@@ -231,13 +237,15 @@ export default function App() {
           />
         )}
 
+        {/* Individual Student Result Scorecard */}
         {currentView === 'result' && finalResult && (
           <ResultPage
             result={finalResult}
-            onNavigateHome={() => setCurrentView('home')}
+            onNavigateHome={() => setCurrentView('login')}
           />
         )}
 
+        {/* Organizer Secure Sign-in */}
         {currentView === 'admin-login' && (
           <AdminLoginPage
             onAdminAuthenticated={handleAdminAuthenticated}
@@ -245,16 +253,18 @@ export default function App() {
           />
         )}
 
+        {/* Organizer Control Dashboard */}
         {currentView === 'admin-dashboard' && adminEmail && (
           <AdminDashboardPage
             adminEmail={adminEmail}
             onLogout={handleAdminLogout}
-            onNavigateHome={() => setCurrentView('home')}
+            onNavigateHome={() => setCurrentView('login')}
           />
         )}
 
+        {/* Unauthorized View */}
         {currentView === 'unauthorized' && (
-          <UnauthorizedPage onNavigateHome={() => setCurrentView('home')} />
+          <UnauthorizedPage onNavigateHome={() => setCurrentView('login')} />
         )}
       </main>
 

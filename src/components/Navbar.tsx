@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Shield, User, Award, Terminal } from 'lucide-react';
+import { Shield, User, Terminal, LogIn } from 'lucide-react';
 
 interface NavbarProps {
   currentView: string;
@@ -22,7 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex justify-between items-center h-16">
           {/* Logo & Branding */}
           <div
-            onClick={() => onNavigate('home')}
+            onClick={() => onNavigate('login')}
             className="flex items-center gap-3 cursor-pointer group"
           >
             <div className="w-10 h-10 rounded-xl bg-linear-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
@@ -43,8 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Navigation & Contextual Badges */}
-          <div className="flex items-center gap-3">
+          {/* Navigation & Badges */}
+          <div className="flex items-center gap-2 sm:gap-3">
             {studentRoll && currentView !== 'quiz' && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-xs font-medium">
                 <User className="w-3.5 h-3.5 text-blue-600" />
@@ -59,37 +59,38 @@ export const Navbar: React.FC<NavbarProps> = ({
             {currentView !== 'quiz' && (
               <>
                 <button
+                  onClick={() => onNavigate('login')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    currentView === 'login' || currentView === 'instructions'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-blue-700 bg-blue-50 hover:bg-blue-100'
+                  }`}
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Student Login</span>
+                </button>
+
+                <button
                   onClick={() => onNavigate('home')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                     currentView === 'home'
                       ? 'bg-indigo-50 text-indigo-700 font-semibold'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  Home
-                </button>
-
-                <button
-                  onClick={() => onNavigate('register')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                    currentView === 'register' || currentView === 'access-code' || currentView === 'instructions'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-blue-700 hover:bg-blue-50'
-                  }`}
-                >
-                  Student Entry
+                  Rules & Info
                 </button>
 
                 <button
                   onClick={() => onNavigate(isAdmin ? 'admin-dashboard' : 'admin-login')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                     currentView.startsWith('admin')
                       ? 'bg-purple-700 text-white shadow-xs'
                       : 'text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200'
                   }`}
                 >
                   <Shield className="w-3.5 h-3.5" />
-                  <span>Organizer</span>
+                  <span className="hidden sm:inline">Organizer</span>
                 </button>
               </>
             )}

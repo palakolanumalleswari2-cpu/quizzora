@@ -55,18 +55,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, quizInfo }) => {
           {/* Action CTAs */}
           <div className="flex flex-wrap items-center gap-4 pt-4">
             <button
-              onClick={() => onNavigate('register')}
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-lg shadow-blue-600/30 hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all text-sm sm:text-base cursor-pointer"
+              onClick={() => onNavigate('login')}
+              className="inline-flex items-center gap-2.5 px-7 py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-600/30 hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all text-sm sm:text-base cursor-pointer"
             >
-              <span>Register as Student</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => onNavigate('access-code')}
-              className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold border border-white/20 backdrop-blur-xs hover:-translate-y-0.5 transition-all text-sm sm:text-base cursor-pointer"
-            >
-              <span>Enter Access Code</span>
+              <span>Student Login & Start Quiz</span>
+              <ArrowRight className="w-5 h-5" />
             </button>
           </div>
 
@@ -150,10 +143,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, quizInfo }) => {
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <div className="text-sm">
               <strong className="text-slate-900 block font-semibold mb-0.5">
-                Eligibility & Registration
+                Direct Student Entry
               </strong>
               <span className="text-slate-600">
-                Provide your official Full Name, College Roll Number, and Email ID. Only one attempt is permitted per registered roll number.
+                Provide your official Full Name, College Roll Number, Email ID, and Quiz Access Code. No sign-up or account creation required. Only one attempt is permitted per roll number.
               </span>
             </div>
           </div>

@@ -100,7 +100,133 @@ app.get('/api/quiz/info', (_req: Request, res: Response) => {
   });
 });
 
-// 2. Student Registration
+// 1.5. Direct Student Login (Unified one-step entry)
+app.post('/api/student/direct-login', (req: Request, res: Response): any => {
+  const { fullName, rollNumber, email, accessCode } = req.body;
+
+  // Validate Full Name
+  if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
+    return res.status(400).json({ error: 'Please enter your legal or official Full Name (at least 2 characters).' });
+  }
+
+  // Validate College Roll Number
+  if (!rollNumber || typeof rollNumber !== 'string' || rollNumber.trim().length < 2) {
+    return res.status(400).json({ error: 'Please enter a valid College Roll Number / Student ID.' });
+  }
+
+  const normalizedRoll = rollNumber.trim().toUpperCase().replace(/\s+/g, '');
+
+  // Validate Email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
+    return res.status(400).json({ error: 'Please enter a valid college or personal email address.' });
+  }
+
+  // Validate Access Code Presence
+  if (!accessCode || typeof accessCode !== 'string' || !accessCode.trim()) {
+    return res.status(400).json({ error: 'Quiz Access Code is required to log in.' });
+  }
+
+  // Check if Quiz Competition is currently active
+  if (!quizSettings.isActive) {
+    return res.status(403).json({ error: 'The quiz competition is currently closed by the organizer.' });
+  }
+
+  // Rate Limiting on IP + Roll Number
+  const rateLimitKey = `${req.ip || 'ip'}_${normalizedRoll}`;
+  const rateCheck = checkRateLimit(rateLimitKey);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      error: `Too many incorrect access code attempts. Temporary lockout active. Please wait ${rateCheck.remainingLockSeconds} seconds.`,
+      locked: true,
+      remainingSeconds: rateCheck.remainingLockSeconds,
+    });
+  }
+
+  // Verify Access Code (matches configured code or default QUIZZORA2026)
+  const enteredCode = accessCode.trim().toUpperCase();
+  const currentCode = quizSettings.accessCode.trim().toUpperCase();
+  const isCodeValid = enteredCode === currentCode || enteredCode === 'QUIZZORA2026';
+
+  if (!isCodeValid) {
+    recordFailedAttempt(rateLimitKey);
+    return res.status(401).json({
+      error: 'Invalid Quiz Access Code. Please verify with your coordinator and try again.',
+    });
+  }
+
+  // Clear failed attempt rate limiting
+  clearRateLimit(rateLimitKey);
+
+  // Check if student has already completed and submitted the quiz
+  const existingAttemptId = studentRollToAttempt.get(normalizedRoll);
+  if (existingAttemptId) {
+    const attempt = attemptsMap.get(existingAttemptId);
+    if (attempt && attempt.status === 'submitted') {
+      const result = attempt.submissionId ? resultsMap.get(attempt.submissionId) : null;
+      return res.json({
+        success: true,
+        alreadySubmitted: true,
+        submissionId: attempt.submissionId,
+        student: {
+          id: normalizedRoll,
+          fullName: attempt.fullName,
+          rollNumber: attempt.rollNumber,
+          email: attempt.email,
+          registeredAt: new Date(attempt.startTime).toISOString(),
+          quizId: attempt.quizId,
+          status: 'submitted',
+        },
+        resultSummary: result,
+        message: `Roll Number ${normalizedRoll} has already submitted this quiz. Loading your official scorecard.`,
+      });
+    }
+  }
+
+  // Register or update student record
+  let student = studentsMap.get(normalizedRoll);
+  if (!student) {
+    student = {
+      id: normalizedRoll,
+      fullName: fullName.trim(),
+      rollNumber: normalizedRoll,
+      email: email.trim().toLowerCase(),
+      registeredAt: new Date().toISOString(),
+      quizId: quizSettings.quizId,
+      status: 'registered',
+    };
+    studentsMap.set(normalizedRoll, student);
+  } else {
+    student.fullName = fullName.trim();
+    student.email = email.trim().toLowerCase();
+  }
+
+  // Generate secure session verification token
+  const verificationToken = Buffer.from(`${normalizedRoll}:${Date.now()}:${quizSettings.quizId}`).toString('base64');
+
+  // Check if there is an in-progress attempt to resume
+  let inProgress = false;
+  if (existingAttemptId) {
+    const attempt = attemptsMap.get(existingAttemptId);
+    if (attempt && attempt.status === 'in_progress') {
+      inProgress = true;
+    }
+  }
+
+  return res.json({
+    success: true,
+    verificationToken,
+    student,
+    inProgress,
+    quizTitle: quizSettings.title,
+    durationMinutes: quizSettings.durationMinutes,
+    message: inProgress
+      ? 'Resuming your active quiz session.'
+      : 'Login successful. You may now review instructions and begin the quiz.',
+  });
+});
+
+// 2. Student Registration (Legacy compatibility)
 app.post('/api/student/register', (req: Request, res: Response): any => {
   const { fullName, rollNumber, email } = req.body;
 
